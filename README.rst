@@ -155,27 +155,34 @@ an object to a certain protocol, both from Python and from inside
 Lua::
 
       >>> lua_func = lua.eval('function(obj) return obj["get"] end')
-      >>> d = {'get' : 'got'}
+      >>> d = {'get' : 'value'}
 
       >>> value = lua_func(d)
-      >>> value == 'got'
+      >>> value == d['get'] == 'value'
+      True
+
+      >>> value = lua_func( lupa.as_itemgetter(d) )
+      >>> value == d['get'] == 'value'
       True
 
       >>> dict_get = lua_func( lupa.as_attrgetter(d) )
-      >>> dict_get('get') == 'got'
+      >>> dict_get == d.get
+      True
+      >>> dict_get('get') == d.get('get') == 'value'
       True
 
       >>> lua_func = lua.eval(
       ...     'function(obj) return python.as_attrgetter(obj)["get"] end')
       >>> dict_get = lua_func(d)
-      >>> dict_get('get') == 'got'
+      >>> dict_get('get') == d.get('get') == 'value'
       True
 
-Note that unlike Lua function objects, callable Python objects are
-indexable::
+Note that unlike Lua function objects, callable Python objects support
+indexing in Lua::
 
       >>> def py_func(): pass
       >>> py_func.ATTR = 2
+
       >>> lua_func = lua.eval('function(obj) return obj.ATTR end')
       >>> lua_func(py_func)
       2
@@ -258,7 +265,8 @@ automatically explodes the tuple items into separate Lua arguments::
 
 Note that accessing the ``d.items`` method from Lua requires passing
 the dict as ``attrgetter``.  Otherwise, attribute access in Lua would
-use the ``getitem`` protocol of Python dicts.
+use the ``getitem`` protocol of Python dicts and look up ``d['items']``
+instead.
 
 
 Lua Tables
@@ -471,59 +479,59 @@ implementation`_ for the `Computer Language Benchmarks Game`_.
 
 ::
 
-        lua_code = '''\
-            function(N, i, total)
-                local char, unpack = string.char, unpack
-                local result = ""
-                local M, ba, bb, buf = 2/N, 2^(N%8+1)-1, 2^(8-N%8), {}
-                local start_line, end_line = N/total * (i-1), N/total * i - 1
-                for y=start_line,end_line do
-                    local Ci, b, p = y*M-1, 1, 0
-                    for x=0,N-1 do
-                        local Cr = x*M-1.5
-                        local Zr, Zi, Zrq, Ziq = Cr, Ci, Cr*Cr, Ci*Ci
-                        b = b + b
-                        for i=1,49 do
-                            Zi = Zr*Zi*2 + Ci
-                            Zr = Zrq-Ziq + Cr
-                            Ziq = Zi*Zi
-                            Zrq = Zr*Zr
-                            if Zrq+Ziq > 4.0 then b = b + 1; break; end
-                        end
-                        if b >= 256 then p = p + 1; buf[p] = 511 - b; b = 1; end
+    lua_code = '''\
+        function(N, i, total)
+            local char, unpack = string.char, unpack
+            local result = ""
+            local M, ba, bb, buf = 2/N, 2^(N%8+1)-1, 2^(8-N%8), {}
+            local start_line, end_line = N/total * (i-1), N/total * i - 1
+            for y=start_line,end_line do
+                local Ci, b, p = y*M-1, 1, 0
+                for x=0,N-1 do
+                    local Cr = x*M-1.5
+                    local Zr, Zi, Zrq, Ziq = Cr, Ci, Cr*Cr, Ci*Ci
+                    b = b + b
+                    for i=1,49 do
+                        Zi = Zr*Zi*2 + Ci
+                        Zr = Zrq-Ziq + Cr
+                        Ziq = Zi*Zi
+                        Zrq = Zr*Zr
+                        if Zrq+Ziq > 4.0 then b = b + 1; break; end
                     end
-                    if b ~= 1 then p = p + 1; buf[p] = (ba-b)*bb; end
-                    result = result .. char(unpack(buf, 1, p))
+                    if b >= 256 then p = p + 1; buf[p] = 511 - b; b = 1; end
                 end
-                return result
+                if b ~= 1 then p = p + 1; buf[p] = (ba-b)*bb; end
+                result = result .. char(unpack(buf, 1, p))
             end
-        '''
+            return result
+        end
+    '''
 
-        image_size = 1280   # == 1280 x 1280
-        thread_count = 8
+    image_size = 1280   # == 1280 x 1280
+    thread_count = 8
 
-        from lupa import LuaRuntime
-        lua_funcs = [ LuaRuntime(encoding=None).eval(lua_code)
-                      for _ in range(thread_count) ]
+    from lupa import LuaRuntime
+    lua_funcs = [ LuaRuntime(encoding=None).eval(lua_code)
+                  for _ in range(thread_count) ]
 
-        results = [None] * thread_count
-        def mandelbrot(i, lua_func):
-            results[i] = lua_func(image_size, i+1, thread_count)
+    results = [None] * thread_count
+    def mandelbrot(i, lua_func):
+        results[i] = lua_func(image_size, i+1, thread_count)
 
-	import threading
+    import threading
         threads = [ threading.Thread(target=mandelbrot, args=(i,lua_func))
                     for i, lua_func in enumerate(lua_funcs) ]
-	for thread in threads:
-            thread.start()
-	for thread in threads:
-            thread.join()
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
 
-        result_buffer = b''.join(results)
+    result_buffer = b''.join(results)
 
-	# use PIL to display the image
-	import Image
-        image = Image.fromstring('1', (image_size, image_size), result_buffer)
-        image.show()
+    # use PIL to display the image
+    import Image
+    image = Image.fromstring('1', (image_size, image_size), result_buffer)
+    image.show()
 
 Note how the example creates a separate ``LuaRuntime`` for each thread
 to enable parallel execution.  Each ``LuaRuntime`` is protected by a
