@@ -1,9 +1,16 @@
 
 import sys
 import os
-from distutils.core import setup, Extension
 
-VERSION = '0.20'
+from glob import iglob
+
+try:
+    # use setuptools if available
+    from setuptools import setup, Extension
+except ImportError:
+    from distutils.core import setup, Extension
+
+VERSION = '1.2'
 
 extra_setup_args = {}
 
@@ -111,21 +118,28 @@ def find_lua_build(no_luajit=False):
     # try to find local LuaJIT2 build
     os_path = os.path
     for filename in os.listdir(basedir):
-        if filename.lower().startswith('luajit'):
-            filepath = os_path.join(basedir, filename, 'src')
-            if os_path.isdir(filepath):
-                libfile = os_path.join(filepath, 'libluajit.a')
-                if os_path.isfile(libfile):
-                    print("found LuaJIT build in %s" % filepath)
-                    print("building statically")
-                    return dict(extra_objects=[libfile], include_dirs=[filepath]), None
-                # Also check for lua51.lib, which is the Windows equivilant of libluajit.a
-                libfile = os_path.join(filepath, 'lua51.lib')
-                if os_path.isfile(libfile):
-                    print("found LuaJIT build in %s" % filepath)
-                    print("building statically")
-                    # And return the dll file name too, as we need to include it in the install directory
-                    return dict(extra_objects=[libfile], include_dirs=[filepath]), 'lua51.dll'
+        if not filename.lower().startswith('luajit'):
+            continue
+        filepath = os_path.join(basedir, filename, 'src')
+        if not os_path.isdir(filepath):
+            continue
+        libfile = os_path.join(filepath, 'libluajit.a')
+        if os_path.isfile(libfile):
+            print("found LuaJIT build in %s" % filepath)
+            print("building statically")
+            return dict(extra_objects=[libfile],
+                        include_dirs=[filepath])
+        # also check for lua51.lib, the Windows equivalent of libluajit.a
+        for libfile in iglob(os_path.join(filepath, 'lua5?.lib')):
+            if os_path.isfile(libfile):
+                print("found LuaJIT build in %s (%s)" % (
+                    filepath, os.path.basename(libfile)))
+                print("building statically")
+                # And return the dll file name too, as we need to
+                # include it in the install directory
+                return dict(extra_objects=[libfile],
+                            include_dirs=[filepath],
+                            libfile=os.path.basename(libfile))
     print("No local build of LuaJIT2 found in lupa directory")
 
     # try to find installed LuaJIT2 or Lua
@@ -133,24 +147,28 @@ def find_lua_build(no_luajit=False):
         packages = []
     else:
         packages = [('luajit', '2')]
-    packages += [(name, '5.1') for name in ('lua5.1', 'lua-5.1', 'lua')]
+    packages += [
+        (name, lua_version)
+        for lua_version in ('5.2', '5.1')
+        for name in ('lua%s' % lua_version, 'lua-%s' % lua_version, 'lua')
+    ]
 
     for package_name, min_version in packages:
-        print("Checking for installed %s library using pkg-config" % package_name)
+        print("Checking for installed %s library using pkg-config" %
+              package_name)
         try:
             check_lua_installed(package_name, min_version)
-            return dict(extra_objects=lua_libs(package_name), include_dirs=lua_include(package_name)), None
+            return dict(extra_objects=lua_libs(package_name),
+                        include_dirs=lua_include(package_name))
         except RuntimeError:
-            print("Did not find %s using pkg-config: %s" % (package_name, sys.exc_info()[1]))
+            print("Did not find %s using pkg-config: %s" % (
+                package_name, sys.exc_info()[1]))
 
-    error = ("Neither LuaJIT2 nor Lua 5.1 were found, please install "
-             "the library and its development packages, "
-             "or put a local build into the lupa main directory")
-    if no_luajit:
-        print(error)
-    else:
-        raise RuntimeError(error + " (or pass '--no-luajit' option)")
-    return {}, None
+    error = ("None of LuaJIT2, Lua 5.1 or Lua 5.2 were found. Please install "
+             "Lua and its development packages, "
+             "or put a local build into the lupa main directory.")
+    print(error)
+    return {}
 
 
 def has_option(name):
@@ -159,9 +177,18 @@ def has_option(name):
         return True
     return False
 
-ext_args, dll_file = find_lua_build(no_luajit=has_option('--no-luajit'))
+config = find_lua_build(no_luajit=has_option('--no-luajit'))
+ext_args = {
+    'extra_objects': config.get('extra_objects'),
+    'include_dirs': config.get('include_dirs'),
+}
+
+macros = [('LUA_COMPAT_ALL', None)]
 if has_option('--without-assert'):
-    ext_args['define_macros'] = [('CYTHON_WITHOUT_ASSERTIONS', None)]
+    macros.append(('CYTHON_WITHOUT_ASSERTIONS', None))
+if has_option('--with-lua-checks'):
+    macros.append(('LUA_USE_APICHECK', None))
+ext_args['define_macros'] = macros
 
 
 # check if Cython is installed, and use it if requested or necessary
@@ -172,47 +199,37 @@ if not use_cython:
         use_cython = True
 
 cythonize = None
+source_extension = ".c"
 if use_cython:
     try:
-        from Cython.Build import cythonize
         import Cython.Compiler.Version
+        from Cython.Build import cythonize
         print("building with Cython " + Cython.Compiler.Version.version)
         source_extension = ".pyx"
     except ImportError:
         print("WARNING: trying to build with Cython, but it is not installed")
-        cythonize = None
-        source_extension = ".c"
 else:
     print("building without Cython")
-    source_extension = ".c"
-
 
 ext_modules = [
     Extension(
         'lupa._lupa',
         sources = ['lupa/_lupa'+source_extension],
         **ext_args
-        )
-    ]
+    )]
 
 if cythonize is not None:
     ext_modules = cythonize(ext_modules)
 
 
 def read_file(filename):
-    f = open(os.path.join(basedir, filename))
-    try:
+    with open(os.path.join(basedir, filename)) as f:
         return f.read()
-    finally:
-        f.close()
 
 
 def write_file(filename, content):
-    f = open(os.path.join(basedir, filename), 'w')
-    try:
+    with open(os.path.join(basedir, filename), 'w') as f:
         f.write(content)
-    finally:
-        f.close()
 
 
 long_description = '\n\n'.join([
@@ -221,44 +238,46 @@ long_description = '\n\n'.join([
 
 write_file(os.path.join('lupa', 'version.py'), "__version__ = '%s'\n" % VERSION)
 
-# Include lua51.dll in the lib folder if we are on windows
-if dll_file is not None:
-    extra_setup_args['package_data'] = {'lupa': [dll_file]}
-
-if sys.version_info >= (2,6):
-    extra_setup_args['license'] = 'MIT style'
+if config.get('libfile'):
+    # include lua51.dll in the lib folder if we are on windows
+    extra_setup_args['package_data'] = {'lupa': [config['libfile']]}
 
 
 # call distutils
 
 setup(
-    name = "lupa",
-    version = VERSION,
-    author = "Stefan Behnel",
-    author_email = "stefan_ml@behnel.de",
-    maintainer = "Lupa-dev mailing list",
-    maintainer_email = "lupa-dev@freelists.org",
-    url = "https://github.com/scoder/lupa",
-    download_url = "http://pypi.python.org/packages/source/l/lupa/lupa-%s.tar.gz" % VERSION,
+    name="lupa",
+    version=VERSION,
+    author="Stefan Behnel",
+    author_email="stefan_ml@behnel.de",
+    maintainer="Lupa-dev mailing list",
+    maintainer_email="lupa-dev@freelists.org",
+    url="https://github.com/scoder/lupa",
 
-    description="Python wrapper around LuaJIT",
+    description="Python wrapper around Lua and LuaJIT",
 
-    long_description = long_description,
-    classifiers = [
-        'Development Status :: 4 - Beta',
+    long_description=long_description,
+    license='MIT style',
+    classifiers=[
+        'Development Status :: 5 - Production/Stable',
         'Intended Audience :: Developers',
         'Intended Audience :: Information Technology',
         'License :: OSI Approved :: MIT License',
         'Programming Language :: Cython',
         'Programming Language :: Python :: 2',
+        'Programming Language :: Python :: 2.6',
+        'Programming Language :: Python :: 2.7',
         'Programming Language :: Python :: 3',
+        'Programming Language :: Python :: 3.2',
+        'Programming Language :: Python :: 3.3',
+        'Programming Language :: Python :: 3.4',
+        'Programming Language :: Python :: 3.5',
         'Programming Language :: Other Scripting Engines',
         'Operating System :: OS Independent',
         'Topic :: Software Development',
     ],
 
-    packages = ['lupa'],
-#    package_data = {},
-    ext_modules = ext_modules,
+    packages=['lupa'],
+    ext_modules=ext_modules,
     **extra_setup_args
 )

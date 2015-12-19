@@ -1,5 +1,5 @@
 Installing lupa
-================
+===============
 
 Building with LuaJIT2
 ---------------------
@@ -14,11 +14,11 @@ Building with LuaJIT2
 
 #) Unpack the archive into the lupa base directory, e.g.::
 
-     .../lupa-0.1/LuaJIT-2.0.0-beta4
+     .../lupa-0.1/LuaJIT-2.0.2
 
 #) Build LuaJIT::
 
-     cd LuaJIT-2.0.0-beta4
+     cd LuaJIT-2.0.2
      make
      cd ..
 
@@ -50,6 +50,17 @@ Building with LuaJIT2
    `somewhat unclear blog post`_, which may or may not tell you at
    which point in the installation process to provide these flags.
 
+   Also, on 64bit MacOS-X, you will typically have to set the
+   environment variable ``ARCHFLAGS`` to make sure it only builds
+   for your system instead of trying to generate a fat binary with
+   both 32bit and 64bit support::
+
+     export ARCHFLAGS="-arch x86_64"
+
+   Note that this applies to both LuaJIT and Lupa, so make sure
+   you try a clean build of everything if you forgot to set it
+   initially.
+
 .. _`installation instructions for LuaJIT`: http://luajit.org/install.html
 .. _`somewhat unclear blog post`: http://t-p-j.blogspot.com/2010/11/lupa-on-os-x-with-macports-python-26.html
 .. _`distutils documentation`: http://docs.python.org/install/index.html#install-index
@@ -65,16 +76,60 @@ any development packages (header files etc.).
 
 On systems that use the "pkg-config" configuration mechanism, Lupa's
 setup.py will pick up either LuaJIT2 or Lua automatically, with a
-preference for LuaJIT2 if it is found.  Pass the "--no-luajit" option
+preference for LuaJIT2 if it is found.  Pass the ``--no-luajit`` option
 to the setup.py script if you have both installed but do not want to
 use LuaJIT2.
 
 On other systems, you may have to supply the build parameters
 externally, e.g. using environment variables or by changing the
-setup.py script manually.  Pass the "--no-luajit" option to the
+setup.py script manually.  Pass the ``--no-luajit`` option to the
 setup.py script in order to ignore the failure you get when neither
 LuaJIT2 nor Lua are found automatically.
 
 For further information, read this mailing list post:
 
 http://article.gmane.org/gmane.comp.python.lupa.devel/31
+
+
+Installing lupa from packages
+=============================
+
+Debian/Ubuntu + Lua 5.2
+-----------------------
+
+#) Install Lua 5.2 development package::
+
+     $ apt-get install liblua5.2-dev
+
+#) Install lupa::
+
+     $ pip install lupa
+
+Debian/Ubuntu + LuaJIT2
+-----------------------
+
+#) Install LuaJIT2 development package::
+
+     $ apt-get install libluajit-5.1-dev
+
+#) Install lupa::
+
+     $ pip install lupa
+
+Depending on OS version, you might get an older LuaJIT2 version.
+
+OS X + Lua 5.2 + Homebrew
+-------------------------
+
+#) Install Lua::
+
+     $ brew install lua
+
+#) Install pkg-config::
+
+     $ brew install pkg-config
+
+#) Install lupa::
+
+     $ pip install lupa
+
